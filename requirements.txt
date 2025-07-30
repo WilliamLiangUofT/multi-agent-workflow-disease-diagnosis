@@ -1,0 +1,11 @@
+langchain
+langchain-core
+langchain-openai
+langchain_community
+langchain_chroma
+langgraph
+pydantic
+typing-extensions
+python-dotenv
+chromadb
+tqdm
