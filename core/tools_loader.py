@@ -1,4 +1,4 @@
-from mcp_client import MCPPubMedClient
+from core.mcp_client import MCPPubMedClient
 from typing import Any
 from mcp.types import Tool as MCPTool
 from langchain_core.tools.structured import StructuredTool
@@ -9,8 +9,6 @@ async def get_structured_tools(client: MCPPubMedClient) -> list[StructuredTool]:
 
     async def convert_mcp_tool_to_langchain_tool(tool: MCPTool):
         async def tool_call(**arguments: dict[str, Any]):
-            print("===========")
-            print(arguments)
             tool_call_result = await client.session.call_tool(tool.name, arguments)
             str_tool_call_result = [article.text for article in tool_call_result.content] # This would make this specific to search_keyword_tool tool
             return str_tool_call_result

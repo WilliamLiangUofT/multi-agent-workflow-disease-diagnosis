@@ -10,7 +10,6 @@ from typing_extensions import TypedDict, Annotated
 from langgraph.graph.message import add_messages
 from langchain_core.messages import AnyMessage, SystemMessage, HumanMessage, AIMessage
 from pydantic import BaseModel, Field
-from langgraph.types import Send
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import OpenAIEmbeddings
@@ -110,7 +109,7 @@ class FinalDecisionSchema(BaseModel):
     most_likely_diagnosis: str = Field(..., description="The most likely disease diagnosis.")
     differential_diagnosis: list[str] = Field(..., description="A list of other most likely possible diseases or conditions that could be causing the patient's symptoms.")
     recommended_tests: list[str] = Field(..., description="A set of diagnostic tests/studies that should be performed as soon as possible to confirm and exclude diseases.")
-    detailed_report: str = Field(..., description="")
+    detailed_report: str = Field(..., description="Detailed report giving reasons and justification for most likely diagnosis, differential diagnosis, and recommended tests.")
 
 # General State
 # use reducer when necessary if multiple subgraphs are adding
