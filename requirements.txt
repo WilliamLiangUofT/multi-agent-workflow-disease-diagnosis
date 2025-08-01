@@ -6,6 +6,8 @@ langchain_chroma
 langgraph
 pydantic
 typing-extensions
+fastapi
+uvicorn
 python-dotenv
 chromadb
 tqdm

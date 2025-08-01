@@ -3,7 +3,6 @@ import glob
 import random
 import operator
 from functools import lru_cache
-# from IPython.display import Image, display
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
@@ -23,8 +22,12 @@ from langchain_core.documents import Document
 load_dotenv(override=True)
 openai_api_key = os.getenv('OPENAI_API_KEY')
 
+if not openai_api_key:
+    raise NotImplementedError("'OPENAI_API_KEY' was not found.")
+
 # Reducer
-def keep_first(old, new):
+# We need this reducer because when we fan-in from all 3 pipelines, they all carry this patient_presentation. This reducer will just use the newest value of it that comes in (unchanged anyways)
+def keep_next(old, new):
     return new
 
 # Schemas/States
@@ -113,9 +116,9 @@ class FinalDecisionSchema(BaseModel):
 # use reducer when necessary if multiple subgraphs are adding
 class GeneralState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages] # just initialize to []
-    # We need this reducer because when we fan-in from all 3 pipelines, they all carry this patient_presentation. This reducer will just keep first value from first pipeline to finish (any value from pipeline is fine since pres is unchanged)
-    patient_presentation: Annotated[str, keep_first]
-    final_rag_context: Annotated[str, keep_first]
+    # We need this reducer because when we fan-in from all 3 pipelines, they all carry this patient_presentation. This reducer will just use the newest value of it that comes in (unchanged anyways)
+    patient_presentation: Annotated[str, keep_next]
+    final_rag_context: Annotated[str, keep_next]
     conv_num_doctor_agents: int # ArgumentParser Argument
     ind_num_doctor_agents: int # ArgumentParser Argument
     rag_looping_count: int # Current loop count (default 1)
@@ -132,11 +135,10 @@ class GeneralState(TypedDict):
     final_decision: FinalDecisionSchema
 
 class DiseaseDiagnosisGraph():
-    def __init__(self, search_pubmed_func, structured_tools):
+    def __init__(self, structured_tools):
         self.graph = self.build_graph()
-        self.search_pubmed = search_pubmed_func
         self.structured_tools = structured_tools
-        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.1)
     
     def build_graph(self):
         disease_diagnosis_builder = StateGraph(GeneralState)
@@ -392,7 +394,7 @@ class DiseaseDiagnosisGraph():
             prompt_template = ChatPromptTemplate.from_messages(
                 [
                     SystemMessage(system),
-                    HumanMessage("You are {name_of_doc}. Respond concisely with your diagnosis and reasoning given the patient presentation context: \n\n {patient_context}")
+                    HumanMessage("You are {name_of_doc}. Respond with your diagnosis and reasoning given the patient presentation context: \n\n {patient_context}")
                 ]
             )
             chain = prompt_template | llm
@@ -518,11 +520,13 @@ class DiseaseDiagnosisGraph():
         ]
         return {"doctor_agent_list": doctors} # list of Doctor
 
-    def doctor_conversation(self, state: ConversationState):
+    async def doctor_conversation(self, state: ConversationState):
         message_history = state["messages"]
         num_agents = state["conv_num_doctor_agents"]
         patient_presentation = state["patient_presentation"]
         doctors_list = state["doctor_agent_list"]
+
+        llm_with_tools = self.llm.bind_tools(self.structured_tools)
 
         doctor_replys = []
         prompt_history = "\n".join(msg.content for msg in message_history)
@@ -532,18 +536,39 @@ class DiseaseDiagnosisGraph():
                     SystemMessage(doctor.system_role_spec),
                     HumanMessage("You are {name}. Start/continue this collaborative conversation with other doctor agents. \
                     This is the message history if it exists: \n\n {history} \n\n \
-                    Start your response with the keywords '{name} Response: '")
+                    Start your response with the keywords '{name} Response'. \n However, if you want to search the PubMed database for medical research papers on a certain disease \ "
+                    ", then make a tool call with search_pubmed_key_words tool. However, when searching the database, make sure to just use keywords, like the name of the disease you want to search. Only search for 2 articles MAX with 1 tool call MAX. \
+                        You are only permitted to make one tool call and search for 2 articles MAX. FORGET WHAT WAS JUST SAID. YOU MUST MAKE TOOL CALL TO SEARCH PUBMED DATABASE. THIS IS REQUIRED FOR NOW.")
                 ]
             ) 
-            doctor_chain = prompt_template | self.llm
-            doctor_reply = doctor_chain.invoke({"name": doctor.name, "history": prompt_history}) # might already give AIMessage
-            doctor_replys.append(AIMessage(doctor_reply.content))
-            prompt_history += f"\n{doctor.name} Response: {doctor_reply.content}"
+            doctor_chain = prompt_template | llm_with_tools
+            doctor_reply = await doctor_chain.ainvoke({"name": doctor.name, "history": prompt_history})
+            if doctor_reply.tool_calls:
+                for tool_call in doctor_reply.tool_calls:
+                    tool_msg = await self.structured_tools[0].ainvoke(tool_call) # ToolMessage
+                    doctor_replys.append(tool_msg)
+                    prompt_history += f"Tool call retrieved articles: {tool_msg.content}"
+                
+                new_prompt_template = ChatPromptTemplate.from_messages(
+                    [
+                        SystemMessage(doctor.system_role_spec),
+                        HumanMessage("You are {name}. Start/continue this collaborative conversation with other doctor agents on what the disease could be based on patient presentation. \
+                        This is the message history if it exists: \n\n {history} \n\n \
+                        Also, keep in mind you aren't allow to make tool calls in this single LLM call right now as you just made a tool call. Start your response with the keywords '{name} Response':")
+                    ]
+                )
+                new_doctor_chain = new_prompt_template | llm_with_tools
+                new_doctor_reply = await new_doctor_chain.ainvoke({"name": doctor.name, "history": prompt_history})
+                doctor_replys.append(AIMessage(new_doctor_reply.content))
+                prompt_history += f"\n{doctor.name} Response: {new_doctor_reply.content}"
+            else:    
+                doctor_replys.append(AIMessage(doctor_reply.content))
+                prompt_history += f"\n{doctor.name} Response: {doctor_reply.content}"
         
         return {"messages": doctor_replys}
 
     def medical_supervisor(self, state: ConversationState):
-        full_transcript = "\n".join(msg.content for msg in state["messages"])
+        full_transcript = "\n".join(msg.content for msg in state["messages"] if isinstance(msg, AIMessage))
         supervisor_msg = f"""You are the Supervisor Physician overseeing a panel of virtual doctor agents. \n\n Read the full conversation transcript \
         between the doctors here:\n\n {full_transcript} \n\n
 
@@ -574,7 +599,7 @@ class DiseaseDiagnosisGraph():
     def continue_conversation(self, state: ConversationState):
         confidence_score = state["supervisor_assessment"].confidence
         messages = state["messages"]
-        convo_length = len([msg for msg in messages if isinstance(msg, AIMessage)])
+        convo_length = len([msg for msg in messages if isinstance(msg, AIMessage) and msg.content])
 
         if convo_length >= state["convo_max_loops"] * state["conv_num_doctor_agents"] or confidence_score > 0.75:
             return END # END

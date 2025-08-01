@@ -4,50 +4,21 @@ from mcp_client import MCPPubMedClient
 from typing import Any
 from mcp.types import Tool as MCPTool
 from langchain_core.tools.structured import StructuredTool
+from tools_loader import get_structured_tools
 from graph import DiseaseDiagnosisGraph
 
 async def main():
     async with MCPPubMedClient("http://127.0.0.1:8000/mcp") as client:
-        all_tools = await client.list_mcp_tools() # list[MCPTool]
-        search_keyword_tool = [tool for tool in all_tools if tool.name == "search_pubmed_key_words"][0] # MCPTool
-
-        async def convert_mcp_tool_to_langchain_tool(tool: MCPTool):
-            async def tool_call(**arguments: dict[str, Any]):
-                tool_call_result = await client.session.call_tool(tool.name, arguments)
-                str_tool_call_result = [article.text for article in tool_call_result.content] # This would make this specific to search_keyword_tool tool
-                return str_tool_call_result
-            
-            return StructuredTool(
-                name=tool.name,
-                description=tool.description or "",
-                args_schema=tool.inputSchema, # What arguments tool takes
-                coroutine=tool_call # How the ToolNode/agent can actually call the function
-            )
-        
-        pubmed_search_tool = [await convert_mcp_tool_to_langchain_tool(search_keyword_tool)] # loop convert_mcp_tool_to_langchain_tool across MCPTools to get many StructuredTools
+        pubmed_search_tool = await get_structured_tools(client=client) # loop convert_mcp_tool_to_langchain_tool across MCPTools to get many StructuredTools
 
         # result = await pubmed_search_tool[0].ainvoke({'key_words': 'CRISPR', 'num_results': 2})
         # print(result)
-
-        async def search_pubmed(key_words: str, num_results: int):
-            """
-            Search for medical research articles on PubMed database using key words.
-            """
-            articles = await client.session.call_tool(
-                "search_pubmed_key_words", 
-                {
-                    "key_words": key_words,
-                    "num_results": num_results
-                }
-            ).content
-
-            return [article.text for article in articles]
         
         cli_args = parse_arguments()
 
-        disease_diagnosis_graph = DiseaseDiagnosisGraph(search_pubmed_func=search_pubmed, structured_tools=pubmed_search_tool)
+        disease_diagnosis_graph = DiseaseDiagnosisGraph(structured_tools=pubmed_search_tool)
 
-        test = "\"{\\n  \\\"Basic Information\\\": \\\"The patient is an Omani female in her 30s from Sohar.\\\",\\n\\n  \\\"Clinical Presentation\\\": \\\"The patient presented with complaints of difficulty and painful swallowing (odynophagia) for one year. The dysphagia was of gradual onset and progressive, starting as difficulty swallowing solids, which then recently developed into difficulty swallowing both solids and liquids with feelings of food and drinks 'being stuck in her throat'. She reported having easy fatiguability as well as unintentional weight loss. She denied any fever, abdominal pain, nausea, vomiting, heartburn, hematemesis, melena, joint pain, skin rashes or Raynaud's phenomenon. The patient had a history of chronic iron-deficiency anemia of several years and had not taken iron supplements previously. The patient denied any abnormalities in the menstrual cycle and had no pregnancies in the past. The surgical history was unremarkable.\\\",\\n\\n  \\\"Physical Examination\\\": \\\"The patient appeared tired but was fully conscious and cooperative. The patient was vitally stable. Conjunctival pallor, glossitis and angular stomatitis were noted. On hand examination, the patient also had koilonychia and pallor. No lymphadenopathy or skin rashes were seen. On abdominal examination, no tenderness or organomegaly was present, but a round, firm, smooth mass (diameter of 3 cm approximately) over the lower abdomen was palpated. It was immobile and non-tender.\\\",\\n\\n  \\\"Past Medical History\\\": \\\"The patient had a history of chronic iron-deficiency anemia of several years. A family history of G6PD deficiency was reported to be present in siblings. No family history of gastrointestinal malignancy or autoimmune disorders was present.\\\",\\n\\n  \\\"Initial Test Results\\\": \\\"Laboratory studies on admission showed microcytic hypochromic anemia secondary to iron deficiency. No leukocytosis or leukopenia was noted. Thyroid, liver and renal function tests were all within normal levels. Autoimmune workup (including rheumatoid factor, anti-nuclear antibody, erythrocyte sedimentation rate and antibodies specific to Sjogren's syndrome and scleroderma) was unremarkable. Ultrasound of the neck and abdomen was unremarkable. Ultrasound of the pelvis revealed a uterine fibroid measuring 5 \\u00d7 5.5 cm.\\\"\\n}\""
+        test = "\"{\\n  \\\"Basic Information\\\": \\\"The patient was a 2-month-old female infant born after 37 weeks of gestation with a birth weight of 2730 g.\\\",\\n  \\\"Clinical Presentation\\\": \\\"At 2 months, she experienced her first episode of syncope due to repetitive TdPs that degenerated into VF. Her ECG revealed typical T wave alternans, markedly prolonged QT-intervals (RR\\u2009=\\u2009570 ms, QT\\u2009=\\u2009501 ms, QTc\\u2009=\\u2009664 ms), 2:1 atrio-ventricular (AV) block, and recurrence of TdP. The echocardiography showed no congenital heart defects nor hypertrophy. Mexiletine was administered as an initial therapy, which resolved the 2:1 AV block to a 1:1 conduction. Propranolol was also started, which suppressed recurrence of TdP. The patient also suffered from recurrent seizures unrelated to TdPs from 4 months after birth. An electroencephalogram at the age of 7 months displayed hypsarrhythmia. She showed severe developmental disability and hypotonia, and thus she was barely able to roll over at the age of 3. The patient was also diagnosed with autism spectrum disorder at the age of 2. With the medications, the patient\\u2019s ECG at the age of 5 showed slightly prolonged QTc (RR\\u2009=\\u2009559 ms, QT\\u2009=\\u2009346 ms, QTc\\u2009=\\u2009462 ms). Since the pharmacotherapy successfully suppressed her TdP, implantable cardioverter-defibrillator (ICD) was not implanted. Unfortunately, the patient suddenly passed away at 5 years old during a nap.\\\",\\n  \\\"Physical Examination\\\": \\\"The patient\\u2019s face was characterized by dysmorphic features such as high arched palate, full cheeks, and congenital clasped thumb, but no syndactyly. She showed severe developmental disability and hypotonia, and was barely able to roll over at the age of 3.\\\",\\n  \\\"Past Medical History\\\": \\\"There were no findings that indicated hypoglycemia or immunodeficiency related to TS. Her family history was negative for SCD, LQTS, arrhythmia, or neurological abnormalities.\\\",\\n  \\\"Initial Test Results\\\": \\\"Her ECG revealed typical T wave alternans, markedly prolonged QT-intervals (RR\\u2009=\\u2009570 ms, QT\\u2009=\\u2009501 ms, QTc\\u2009=\\u2009664 ms). Echocardiography showed no congenital heart defects nor hypertrophy. An electroencephalogram at the age of 7 months displayed hypsarrhythmia. The patient\\u2019s ECG at the age of 5 showed slightly prolonged QTc (RR\\u2009=\\u2009559 ms, QT\\u2009=\\u2009346 ms, QTc\\u2009=\\u2009462 ms).\\\"\\n}\""
         final_answer_state = await disease_diagnosis_graph.graph.ainvoke(
             {
                 "messages": [],
@@ -74,7 +45,7 @@ async def main():
         print("=========")
         print(final_answer_state["final_rag_context"])
         print("=========")
-        print(final_answer_state["patient_presentation"])
+        print(final_answer_state["messages"])
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Multi-Agent Settings")
