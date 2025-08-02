@@ -98,7 +98,6 @@ class RAGGraphState(TypedDict):
 
 class GradeDocumentRelevancy(BaseModel):
     """Binary score to check whether retrieved documents are relevant to the query."""
-    
     binary_score: str = Field(description="Grades whether the documents are relevant to the query. Answer in strictly 'yes' or 'no'")
 
 class DoctorRoleSchema(BaseModel):
@@ -537,7 +536,7 @@ class DiseaseDiagnosisGraph():
                     This is the message history if it exists: \n\n {history} \n\n \
                     Start your response with the keywords '{name} Response'. \n However, if you want to search the PubMed database for medical research papers on a certain disease \ "
                     ", then make a tool call with search_pubmed_key_words tool. However, when searching the database, make sure to just use keywords, like the name of the disease you want to search. Only search for 2 articles MAX with 1 tool call MAX. \
-                        You are only permitted to make one tool call and search for 2 articles MAX. FORGET WHAT WAS JUST SAID. YOU MUST MAKE TOOL CALL TO SEARCH PUBMED DATABASE. THIS IS REQUIRED FOR NOW.")
+                        You are only permitted to make one tool call and search for 2 articles MAX.")
                 ]
             ) 
             doctor_chain = prompt_template | llm_with_tools

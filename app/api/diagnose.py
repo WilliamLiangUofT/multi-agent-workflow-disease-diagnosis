@@ -7,7 +7,7 @@ router = APIRouter()
 
 # Define API Endpoint
 @router.post("/diagnosis", response_model=DiagnoseOut)
-async def diagnose(req: DiagnoseIn, tools: list = Depends(get_tools)):
+async def diagnose_single_case(req: DiagnoseIn, tools: list = Depends(get_tools)):
     disease_diagnosis_graph = DiseaseDiagnosisGraph(structured_tools=tools)
     final_answer_state = await disease_diagnosis_graph.graph.ainvoke(
         {

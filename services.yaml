@@ -1,0 +1,10 @@
+version: '3.9'
+services:
+  my-app:
+    build: .
+    ports:
+      - 8001:8001
+    environment:
+      OPENAI_API_KEY=${OPENAI_API_KEY}
+
+    
